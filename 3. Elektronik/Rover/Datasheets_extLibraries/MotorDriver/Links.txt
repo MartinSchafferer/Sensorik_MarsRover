@@ -1,0 +1,3 @@
+http://www.ti.com/product/DRV8847/technicaldocuments
+https://www.mouser.at/new/Texas-Instruments/ti-drv8834/
+http://www.ti.com/product/drv8872-q1
