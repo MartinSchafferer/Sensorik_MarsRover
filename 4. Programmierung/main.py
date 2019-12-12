@@ -1,197 +1,31 @@
-import gpio
+import RPi.GPIO as gpio
 import smbus2
 import time
+import cv2
+import numpy as np
+import sys
+import linecache
 
-# PIN decleration
-PIN_TRIGGER_L = 0
-PIN_TRIGGER_M = 0
-PIN_TRIGGER_R = 0
-PIN_ECHO_L = 0
-PIN_ECHO_M = 0
-PIN_ECHO_R = 0
-
-PIN_LT_L = 0
-PIN_LT_R = 0
-
-BUS = smbus2.SMBus(1)
-ENGINE_LEFT_ADD = 0x00
-ENGINE_RIGHT_ADD = 0x00
-GYRO_ADD = 0x00
-
-I2C_MOTORDRIVER_ADD = 0x00
-
-SPEED_LEFT = 0
-SPEED_FORWAD = 130
-SPEED_RIGHT = 0
-MIN_SPEED = 10
-MAX_SPEED = 200
-
-DESIRED_DIST_L = 20
-DESIRED_DIST_M = 30
-DESIRED_DIST_R = 20
+# scripts
+import setup
+import motor_control
+import USS
+#import LT
+import camera
+import DZM
+import LED_control
 
 
-def setup():
-    # Setup BCM-Logic
-    gpio.setmode(gpio.BCM)
+def PrintException():
+    exc_type, exc_obj, tb = sys.exc_info()
+    f = tb.tb_frame
+    lineno = tb.tb_lineno
+    filename = f.f_code.co_filename
+    linecache.checkcache(filename)
+    line = linecache.getline(filename, lineno, f.f_globals)
+    msg = 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
+    print(msg)
 
-    # Setup USS IN/OUT-Pins
-    gpio.setup(PIN_TRIGGER_L, gpio.OUT)
-    gpio.setup(PIN_TRIGGER_M, gpio.OUT)
-    gpio.setup(PIN_TRIGGER_R, gpio.OUT)
-    gpio.setup(PIN_ECHO_L, gpio.IN)
-    gpio.setup(PIN_ECHO_M, gpio.IN)
-    gpio.setup(PIN_ECHO_R, gpio.IN)
-
-    # Set USS Trigger off
-    gpio.output(PIN_TRIGGER_L, False)
-    gpio.output(PIN_TRIGGER_M, False)
-    gpio.output(PIN_TRIGGER_R, False)
-
-    # Setup LT Pins
-    # debug here with additional argument pull_up_down = gpio.PUD_UP
-    gpio.setup(PIN_LT_L, gpio.IN, pull_up_down=gpio.PUD_UP)
-
-    # Wait to settle
-    time.sleep(2)
-
-    # Setup i2c bus 1 --> Global
-    # BUS = smbus2.SMBus(1)
-
-
-# _____________________________#
-# Ultrasonicsensor (USS) Logic
-# ____________________________#
-def USS():
-    USS_distance_l = USS_measure("left")
-    USS_distance_m = USS_measure("middle")
-    USS_distance_r = USS_measure("right")
-
-
-def USS_measure(direction):
-    if direction is "left":
-        pulse_start_l = 0
-        pulse_end_l = 0
-
-        gpio.output(PIN_TRIGGER_L, True)
-        time.sleep(0.00001)
-        gpio.output(PIN_TRIGGER_L, False)
-
-        while gpio.input(PIN_ECHO_L) == 0:
-            pulse_start_l = time.time()
-        while gpio.input(PIN_ECHO_L) == 1:
-            pulse_end_l = time.time()
-        pulse_duration_l = pulse_end_l - pulse_start_l
-        distance_l = round(pulse_duration_l * 17150, 2)
-
-        return distance_l
-
-    if direction is "middle":
-        gpio.output(PIN_TRIGGER_M, True)
-        time.sleep(0.00001)
-        gpio.output(PIN_TRIGGER_M, False)
-
-        pulse_start_m = 0
-        pulse_end_m = 0
-
-        gpio.output(PIN_TRIGGER_M, True)
-        time.sleep(0.00001)
-        gpio.output(PIN_TRIGGER_M, False)
-
-        while gpio.input(PIN_ECHO_M) == 0:
-            pulse_start_m = time.time()
-        while gpio.input(PIN_ECHO_M) == 1:
-            pulse_end_m = time.time()
-        pulse_duration_m = pulse_end_m - pulse_start_m
-        distance_m = round(pulse_duration_m * 17150, 2)
-
-        return distance_m
-
-    if direction is "right":
-        gpio.output(PIN_TRIGGER_R, True)
-        time.sleep(0.00001)
-        gpio.output(PIN_TRIGGER_R, False)
-
-        pulse_start_r = 0
-        pulse_end_r = 0
-
-        gpio.output(PIN_TRIGGER_R, True)
-        time.sleep(0.00001)
-        gpio.output(PIN_TRIGGER_R, False)
-
-        while gpio.input(PIN_ECHO_R) == 0:
-            pulse_start_r = time.time()
-        while gpio.input(PIN_ECHO_R) == 1:
-            pulse_end_r = time.time()
-        pulse_duration_r = pulse_end_r - pulse_start_r
-        distance_r = round(pulse_duration_r * 17150, 2)
-
-        return distance_r
-
-
-# _____________________________#
-# Linetracker(LT) Logic
-# ____________________________#
-def LT():
-    LT_status_l = LT_measure("left")
-    LT_status_r = LT_measure("right")
-
-
-def LT_measure(direction):
-    if direction is "left":
-        return gpio.input(PIN_LT_L)
-
-    if direction is "right":
-        return gpio.input(PIN_LT_R)
-
-
-def motor_control(direction, milliseconds, motorspeed_l, motorspeed_r):
-    direct = ""
-
-    if direction is "turnL":
-        direct = 0b1001
-
-    if direction is "turnR":
-        direct = 0b0110
-
-    if direction is "forward":
-        direct = 0b1010
-
-    if direction is "backward":
-        direct = 0b0101
-
-    if direction is "stop":
-        direct = 0b0000
-
-    # middle parameter with direct needed?
-    write_i2c_block(I2C_MOTORDRIVER_ADD, direct, [motorspeed_l, motorspeed_r])
-
-    # TODO Sleep hier reinpacken (IC2 Vorteile nutzen?)
-    time.sleep(milliseconds / 1000.0)
-
-
-# _____________________________#
-# i2c BUS Logic
-# ____________________________#
-def read_i2c_byte(address):
-    # Open i2c bus 1 and read one byte from address, offset 0
-    b = BUS.read_byte(adress, 0)
-    return b
-
-
-def read_i2c_block(address, number):
-    # Read a block of number(int) bytes of address, offset 0
-    # returning a list of number bytes
-    block = BUS.read_i2c_block_data(address, 0, number)
-    return block
-
-
-def write_i2c_byte(address, data):
-    BUS.write_byte_data(address, 0, data)
-
-
-def write_i2c_block(adress, offset, data):
-    BUS.write_i2c_block_data(adress, offset, data)
 
 
 # _____________________________#
@@ -199,33 +33,225 @@ def write_i2c_block(adress, offset, data):
 # ____________________________#
 
 def main():
+    """
+    Main Logic which loops when the raspberry is started
+    :return: nothing
+    """
+    try:
+
+        obj_detected = False
+
+        print("Go")
+
+        #setup.PIN_pwm_r.stop()
+        #setup.PIN_pwm_l.stop()
+        #motor_control.GPIO_motor_control()
+                
+        motor_control.motor_control("stop", 5, 0, 0)
+        print(setup.BUS.read_i2c_block_data(0x20,0x02,1))
+        print("Lets go")
+        
+        first_loop = 1
+
+        while True:
+
+            #lt_right = LT.LT_measure("right")
+            #lt_left = LT.LT_measure("left")
+
+            dist_left = USS.USS_measure("left")
+            dist_middle = USS.USS_measure("middle")
+            dist_right = USS.USS_measure("right")
+            print(str(dist_left) + " " + str(dist_middle) + " " + str(dist_right) + "\n")
+
+            #position_array = camera.obj_rec(2)
+            #logic_array, obj_detected = camera.pic_logic(position_array)
+
+            #print(str(logic_array) + " " + str(obj_detected) + "\n \n")
+
+            #button_A = i2c.read_i2c_block(setup.BUTTON_A, 1)
+            button_A = gpio.input(setup.BUTTON_A)
+            print(" Button A:" + str(button_A))
+            
+            button_B = gpio.input(setup.BUTTON_B)
+            print(" Button B:" + str(button_B))
+            
+            
+            
+            if button_A == 0:
+                driving_time = 1
+                break_time = 0.1
+                #switcher = i2c.read_i2c_block(SWITCH_ADDRESS, 1)
+                switcher = gpio
+                switcher = 3
+                switcher = setup.read_switch()
+                print("switchter: " + str(switcher))
+                
+                button_B = gpio.input(setup.BUTTON_B)
+                
+                while (button_B == 1):
+                    button_B = gpio.input(setup.BUTTON_B)
+                    
+                    if switcher == 0 or switcher == 1:  # track 1 and 2
+                        if switcher == 0:
+                            SPEED = setup.MAX_SPEED
+
+                        else:  # track2
+                            SPEED = setup.MAX_SPEED / 1.7                    
+                            
+                        if first_loop == 1:
+                            first_loop = 0
+                            motor_control.motor_control("forward", 50, SPEED, SPEED)
+                            
+                        #time.sleep(driving_time)
+                        #motor_control.motor_control("stop", 50 , 0, 0)
+                        #time.sleep(break_time)
+
+                    if switcher == 2:  # track 3
+                        
+                        LT_left, LT_right = LT.LT()
+                        print("LT_left: "+ str(LT_left) + " LT_right " + str(LT_right) + "\n")
+                        print(LT_array)
+                        
+                        SLOW_SIDE = 10
+                        FAST_SIDE = 250
+
+                        if (LT_left == 0 and LT_right == 0):
+                            if first_loop == 1:
+                                motor_control.motor_control("forward", 10, 150, 150)
+                                first_loop = 0
+
+                        elif (LT_left == 1):
+                            print("+++++++++++++++++++++++++++LT_left: "+ str(LT_left) + " LT_right " + str(LT_right) + "\n")
+                            first_loop = 1
+                            SPEED_L = SLOW_SIDE
+                            SPEED_R = FAST_SIDE
+                            motor_control.motor_control("forward", 10, SPEED_L, SPEED_R)
+
+                        elif (LT_right == 1):
+                            print("___________________________LT_left: "+ str(LT_left) + " LT_right " + str(LT_right) + "\n")
+                            first_loop = 1
+                            SPEED_L = FAST_SIDE
+                            SPEED_R = SLOW_SIDE
+                            motor_control.motor_control("forward", 10, SPEED_L, SPEED_R)
+
+                    if switcher == 3:  # track 4
+                        driving_direction = "forward"
+                        driving_time = 1
+                        waiting_time = 10
+                        motor_control.motor_control("stop", 5, 0, 0)
+                        time.sleep(2)
+                        max_dist_l = 20
+                        max_dist_m = 50
+                        max_dist_m_reverse = 10
+                        max_dist_r = 20
 
 
+                        #gpio.add_event_detect(setup.PIN_DZM_L, gpio.RISING)
+                        #gpio.add_event_detect(setup.PIN_DZM_R, gpio.RISING)
 
-    while True:
-        dist_left = USS_measure("left")
-        dist_middle = USS_measure("middle")
-        dist_right = USS_measure("right")
+                        USS_l, USS_m, USS_r = USS.USS()
 
-        # FORWARD
-        if dist_left > 50 or dist_middle > 30 or dist_right > 50:
-            ampl_fact_f = 5 * (dist_middle - DESIRED_DIST_M)
-            SPEED = MAX_SPEED + ampl_fact_f
-            motor_control("forward", 50, SPEED, SPEED)
+                        position_array = camera.obj_rec(2)
+                        logic_array, obj_detected = camera.pic_logic(position_array)
+                        print(str(logic_array) + " " + str(obj_detected) + "\n \n")
 
-        # RIGHT TURN
-        elif dist_left < 20 or dist_middle > 30 or dist_right > 20:
-            ampl_fact_r = 5 * (DESIRED_DIST_L - dist_left)
-            SPEED_R = SPEED - ampl_fact_r
-            SPEED_L = SPEED + ampl_fact_r
-            motor_control("right", 50, SPEED_L, SPEED_R)
+                        SPEED_L = setup.MAX_SPEED
+                        SPEED_R = setup.MAX_SPEED
 
-        # LEFT TURN
-        elif dist_left > 20 or dist_middle > 30 or dist_right < 20:
-            ampl_fact_l = 5 * (DESIRED_DIST_R - dist_right)
-            SPEED_R = SPEED - ampl_fact_l
-            SPEED_L = SPEED + ampl_fact_l
-            motor_control("left", 50, SPEED_L, SPEED_R)
+
+                        # Assign Camera-Data and Process Camera Data (left/right-Factor)
+                        if len(logic_array) is not 0:
+                            first_obj_side = logic_array[0][0]
+                            first_x_avg_pos = logic_array[0][1]
+                            first_y_avg_pos = logic_array[0][2]
+                            first_y_pos = logic_array[0][3]
+                            first_area = logic_array[0][4]
+
+                            if first_obj_side is "obj_leftside":
+                                SPEED_L = SPEED_L + 0.25 * (first_x_avg_pos)
+                                SPEED_R = SPEED_R - 0.25 * (first_x_avg_pos)
+
+                            elif first_obj_side is "obj_rightside":
+                                SPEED_L = SPEED_L - 0.25 * first_x_avg_pos-(first_x_avg_pos%170)
+                                SPEED_R = SPEED_R + 0.25 * first_x_avg_pos-(first_x_avg_pos%170)
+
+                        # Driving Direction via Ultrasonicsensor
+                        if USS_l > max_dist_l and USS_m > max_dist_m and USS_r > max_dist_r:
+                            # drive forward
+                            driving_direction = "forward"
+
+                        elif USS_l < max_dist_l and USS_m > max_dist_m and USS_r > max_dist_r:
+                            # drive right
+                            driving_direction = "forward"
+                            SPEED_L = SPEED_L
+                            SPEED_R = SPEED_R - 2*(max_dist_l-USS_l)
+
+                        elif USS_l > max_dist_l and USS_m > max_dist_m and USS_r < max_dist_r:
+                            # drive left
+                            driving_direction = "forward"
+                            SPEED_L = SPEED_L - 2*(max_dist_l-USS_r)
+                            SPEED_R = SPEED_R
+
+                        elif USS_l > max_dist_l and USS_m < max_dist_m_reverse and USS_r > max_dist_r:
+                            # drive slow
+                            driving_direction = "stop"
+                            SPEED_L = SPEED_L - 2*(max_dist_l-USS_m)
+                            SPEED_R = SPEED_R - 2*(max_dist_l-USS_m)
+
+                        # Consider Drehzahlmesser
+                        max_dz_difference = 4
+                        DZM_faktor = 5
+
+                        DZ_dif = setup.DZ_L - setup.DZ_R
+
+                        if abs(DZ_dif) > max_dz_difference:
+                            if DZ_dif > 0:
+                                # orientate left
+                                SPEED_L = SPEED_L - DZM_faktor * DZ_dif
+                                SPEED_R = SPEED_R + DZM_faktor * DZ_dif
+
+                            if DZ_sum < 0:
+                                # orientate right
+                                SPEED_L = SPEED_L + DZM_faktor * DZ_dif
+                                SPEED_R = SPEED_R - DZM_faktor * DZ_dif
+
+                        # Maxspeed check
+                        if SPEED_L > setup.MAX_MAX_SPEED:
+                            SPEED_L = setup.MAX_MAX_SPEED
+
+                        if SPEED_R > setup.MAX_MAX_SPEED:
+                            SPEED_R = setup.MAX_MAX_SPEED
+
+                        # Minspeed check
+                        if SPEED_L < 0:
+                            SPEED_L = 0
+                        if SPEED_R < 0:
+                            SPEED_R = 0
+                            
+
+                        #gpio.add_event_callback(setup.PIN_DZM_L, DZM.DZM_l(driving_direction))
+                        #gpio.add_event_callback(setup.PIN_DZM_R, DZM.DZM_r(driving_direction))
+                        print("Speed L:" + str(SPEED_L)+"Speed R:" +str(SPEED_R))
+                        motor_control.motor_control(driving_direction, 50, SPEED_L, SPEED_R)
+
+                        time.sleep(driving_time)
+                        motor_control.motor_control("stop", 5, 0, 0)
+                        time.sleep(waiting_time)
+                    
+                    #button_A = gpio.input(setup.BUTTON_A)
+                    if (button_B == 0):
+                        motor_control.motor_control("stop", 5, 0, 0)
+                        first_loop = 1
+
+
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
+    except Exception as e:
+        print("ERROR:" + str(e))
+        PrintException()
+    finally:
+        print("clean up GPIO")
+        gpio.cleanup()
 
 
 if __name__ == "__main__":
